@@ -20,6 +20,12 @@ const NORMAL_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
 const HOVERED_BUTTON: Color = Color::rgb(0.35, 0.35, 0.35);
 const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
+const COLOR_1: Color = Color::BLUE;
+const COLOR_2: Color = Color::RED;
+
+pub struct GoodColor(Color);
+pub struct BadColor(Color);
+
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub enum GameState {
     Menu,
@@ -91,6 +97,8 @@ fn main() {
             height: 1080.0,
             ..Default::default()
         })
+        .insert_resource(GoodColor(COLOR_1))
+        .insert_resource(BadColor(COLOR_2))
         .add_state(GameState::Menu)
         .add_startup_system(setup)
         .add_system(bevy::input::system::exit_on_esc_system)
