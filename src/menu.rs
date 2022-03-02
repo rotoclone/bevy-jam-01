@@ -1,13 +1,26 @@
 use crate::*;
 
-#[derive(Component)]
-pub struct MenuComponent;
+pub struct MenuPlugin;
+
+impl Plugin for MenuPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system_set(SystemSet::on_enter(GameState::Menu).with_system(menu_setup))
+            .add_system_set(
+                SystemSet::on_exit(GameState::Menu)
+                    .with_system(despawn_components::<MenuComponent>),
+            )
+            .add_system(start_button_system);
+    }
+}
 
 #[derive(Component)]
-pub struct StartButton;
+struct MenuComponent;
+
+#[derive(Component)]
+struct StartButton;
 
 /// Sets up the main menu screen.
-pub fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // title text
     let font = asset_server.load("fonts/FiraMono-Medium.ttf");
     commands
@@ -102,7 +115,7 @@ pub fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 type InteractedStartButtonTuple = (Changed<Interaction>, With<StartButton>);
 
 /// Handles interactions with the start button.
-pub fn start_button_system(
+fn start_button_system(
     mut game_state: ResMut<State<GameState>>,
     interaction_query: Query<&Interaction, InteractedStartButtonTuple>,
 ) {

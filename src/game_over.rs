@@ -1,9 +1,21 @@
 use crate::*;
 
+pub struct GameOverPlugin;
+
+impl Plugin for GameOverPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(game_over_setup))
+            .add_system_set(
+                SystemSet::on_exit(GameState::GameOver)
+                    .with_system(despawn_components::<GameOverComponent>),
+            );
+    }
+}
+
 #[derive(Component)]
-pub struct GameOverComponent;
+struct GameOverComponent;
 
 /// Sets up the game over screen.
-pub fn game_over_setup() {
+fn game_over_setup() {
     todo!(); //TODO
 }

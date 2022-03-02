@@ -1,10 +1,24 @@
 use crate::*;
+use bevy::input::mouse::MouseButtonInput;
 use rand::Rng;
 
 const EMPTY_TILE_COLOR: Color = Color::WHITE;
 
+pub struct GamePlugin;
+
+impl Plugin for GamePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system_set(SystemSet::on_enter(GameState::Game).with_system(game_setup))
+            .add_system_set(
+                SystemSet::on_exit(GameState::Game)
+                    .with_system(despawn_components::<GameComponent>),
+            )
+            .add_system(tile_system);
+    }
+}
+
 #[derive(Component)]
-pub struct GameComponent;
+struct GameComponent;
 
 struct Map(Vec<Vec<MapTile>>);
 
@@ -28,7 +42,6 @@ impl Map {
     }
 }
 
-#[derive(Component)]
 struct MapTile {
     coords: Coordinates,
     content: MapTileContent,
@@ -71,14 +84,14 @@ impl MapTile {
     }
 }
 
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 struct Coordinates {
     x: u32,
     y: u32,
 }
 
 /// Sets up the main game screen.
-pub fn game_setup(
+fn game_setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     good_color: Res<GoodColor>,
@@ -127,4 +140,31 @@ pub fn game_setup(
     }
 
     commands.insert_resource(map);
+}
+
+/// Handles interactions with map tiles.
+fn tile_system(
+    buttons: Res<Input<MouseButton>>,
+    cursor_position: Res<CursorPosition>,
+    mut commands: Commands,
+    mut query: Query<(&Transform, &Coordinates, &mut Sprite)>,
+) {
+    if buttons.pressed(MouseButton::Left) {
+        if let Some(pos) = cursor_position.0 {
+            for (transform, coords, mut sprite) in query.iter_mut() {
+                if intersects(pos, transform) {
+                    sprite.color = Color::CYAN; //TODO
+                    println!("u clicked {:?}", coords); //TODO
+                }
+            }
+        }
+    }
+}
+
+/// Determines whether a point intersects a transform
+fn intersects(point: Vec2, transform: &Transform) -> bool {
+    point.x >= transform.translation.x - (transform.scale.x / 2.0) - 1.0
+        && point.x <= transform.translation.x + (transform.scale.x / 2.0) + 1.0
+        && point.y >= transform.translation.y - (transform.scale.y / 2.0) - 1.0
+        && point.y <= transform.translation.y + (transform.scale.y / 2.0) + 1.0
 }

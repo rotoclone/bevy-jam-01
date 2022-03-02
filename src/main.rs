@@ -5,6 +5,9 @@ use bevy::{
 };
 use bevy_inspector_egui::{WorldInspectorParams, WorldInspectorPlugin};
 
+mod cursor_position;
+use cursor_position::*;
+
 mod menu;
 use menu::*;
 
@@ -45,7 +48,9 @@ fn despawn_components<T: Component>(to_despawn: Query<Entity, With<T>>, mut comm
 
 fn setup(mut commands: Commands) {
     // cameras
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands
+        .spawn_bundle(OrthographicCameraBundle::new_2d())
+        .insert(MainCamera);
     commands.spawn_bundle(UiCameraBundle::default());
 }
 
@@ -67,6 +72,7 @@ fn button_color_system(
 type InteractedExitButtonTuple = (Changed<Interaction>, With<ExitButton>);
 
 /// Handles interactions with the exit button.
+/// TODO but there isn't an exit button
 fn exit_button_system(
     mut app_exit_events: EventWriter<AppExit>,
     interaction_query: Query<&Interaction, InteractedExitButtonTuple>,
@@ -102,22 +108,12 @@ fn main() {
         .add_state(GameState::Menu)
         .add_startup_system(setup)
         .add_system(bevy::input::system::exit_on_esc_system)
+        .add_plugin(CursorPositionPlugin)
+        .add_plugin(MenuPlugin)
+        .add_plugin(GamePlugin)
+        .add_plugin(GameOverPlugin)
         .add_system(button_color_system)
-        .add_system(start_button_system)
         .add_system(exit_button_system)
-        .add_system_set(SystemSet::on_enter(GameState::Menu).with_system(menu_setup))
-        .add_system_set(
-            SystemSet::on_exit(GameState::Menu).with_system(despawn_components::<MenuComponent>),
-        )
-        .add_system_set(SystemSet::on_enter(GameState::Game).with_system(game_setup))
-        .add_system_set(
-            SystemSet::on_exit(GameState::Game).with_system(despawn_components::<GameComponent>),
-        )
-        .add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(game_over_setup))
-        .add_system_set(
-            SystemSet::on_exit(GameState::GameOver)
-                .with_system(despawn_components::<GameOverComponent>),
-        )
         .add_plugins(DefaultPlugins);
 
     if DEV_MODE {
