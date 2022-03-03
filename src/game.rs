@@ -119,11 +119,12 @@ impl Map {
 }
 
 /// Determines if the provided tiles are contiguous
+/// TODO this sometimes returns false when it should return true
 fn are_contiguous(tiles: &[&MapTile]) -> bool {
     match tiles.first() {
         Some(tile) => {
-            tile.find_contiguous_tiles(tiles)
-                == tiles.iter().map(|x| *x).collect::<HashSet<&MapTile>>()
+            tile.find_contiguous_tiles(tiles, HashSet::<&MapTile>::new())
+                == tiles.iter().cloned().collect::<HashSet<&MapTile>>()
         }
         None => false,
     }
@@ -172,9 +173,11 @@ struct MapTile {
 impl MapTile {
     /// Determines whether this tile is orthogonally adjacent to the provided tile
     fn adjacent_to(&self, other: &MapTile) -> bool {
-        ((self.coords.x == other.coords.x + 1 || self.coords.x == other.coords.x - 1)
+        ((self.coords.x == other.coords.x + 1
+            || (other.coords.x > 0 && self.coords.x == other.coords.x - 1))
             && self.coords.y == other.coords.y)
-            || ((self.coords.y == other.coords.y + 1 || self.coords.y == other.coords.y - 1)
+            || ((self.coords.y == other.coords.y + 1
+                || (other.coords.y > 0 && self.coords.y == other.coords.y - 1))
                 && self.coords.x == other.coords.x)
     }
 
@@ -184,19 +187,43 @@ impl MapTile {
     }
 
     /// Determines which of the provided tiles are contiguous with this tile (i.e. transitively adjacent to it)
-    fn find_contiguous_tiles<'a>(&self, tiles: &'a [&MapTile]) -> HashSet<&'a MapTile> {
+    /// TODO remove
+    fn find_contiguous_tiles_old<'a>(&self, tiles: &[&'a MapTile]) -> HashSet<&'a MapTile> {
         let mut tile_set: HashSet<&MapTile> = HashSet::new();
 
-        for tile in self.find_adjacent_tiles(tiles) {
+        let adjacent_tiles = self.find_adjacent_tiles(tiles);
+        if adjacent_tiles.is_empty() {
+            return tile_set;
+        }
+
+        for tile in adjacent_tiles {
             let tiles_to_search = tiles
                 .iter()
                 .filter(|x| !tile_set.contains(*x))
-                .map(|x| *x)
+                .cloned()
                 .collect::<Vec<&MapTile>>();
-            tile_set.extend(tile.find_contiguous_tiles(&tiles_to_search))
+            tile_set.extend(tile.find_contiguous_tiles_old(&tiles_to_search))
         }
 
         tile_set
+    }
+
+    /// Determines which of the provided tiles are contiguous with this tile (i.e. transitively adjacent to it)
+    fn find_contiguous_tiles<'a>(
+        &'a self,
+        tiles: &'a [&'a MapTile],
+        mut checked_tiles: HashSet<&'a MapTile>,
+    ) -> HashSet<&'a MapTile> {
+        if checked_tiles.contains(&self) {
+            return checked_tiles;
+        }
+        checked_tiles.insert(self);
+
+        for tile in self.find_adjacent_tiles(tiles) {
+            checked_tiles = tile.find_contiguous_tiles(tiles, checked_tiles);
+        }
+
+        checked_tiles
     }
 }
 
