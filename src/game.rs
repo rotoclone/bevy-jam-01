@@ -88,7 +88,7 @@ impl Map {
                 match good_tiles.cmp(&bad_tiles) {
                     Ordering::Greater => Some(DistrictWinner::Good),
                     Ordering::Less => Some(DistrictWinner::Bad),
-                    Ordering::Equal => None,
+                    Ordering::Equal => Some(DistrictWinner::Tie),
                 }
             } else {
                 None
@@ -119,7 +119,6 @@ impl Map {
 }
 
 /// Determines if the provided tiles are contiguous
-/// TODO this sometimes returns false when it should return true
 fn are_contiguous(tiles: &[&MapTile]) -> bool {
     match tiles.first() {
         Some(tile) => {
@@ -128,18 +127,6 @@ fn are_contiguous(tiles: &[&MapTile]) -> bool {
         }
         None => false,
     }
-    /*
-    //TODO this thinks it's contiguous as long as each tile is next to at least one other tile in the same district, even if there are 2 separate chunks of them
-    for tile in tiles.iter() {
-        let adjacent_tiles = tile.find_adjacent_tiles(tiles);
-
-        if !tiles.iter().any(|other_tile| tile.adjacent_to(other_tile)) {
-            return false;
-        }
-    }
-
-    true
-    */
 }
 
 struct DistrictResult {
@@ -150,6 +137,7 @@ struct DistrictResult {
 enum DistrictWinner {
     Good,
     Bad,
+    Tie,
 }
 
 struct Level {
@@ -184,28 +172,6 @@ impl MapTile {
     /// Determines which of the provided tiles are orthogonally adjacent to this tile
     fn find_adjacent_tiles<'a>(&self, tiles: &'a [&MapTile]) -> Vec<&&'a MapTile> {
         tiles.iter().filter(|tile| tile.adjacent_to(self)).collect()
-    }
-
-    /// Determines which of the provided tiles are contiguous with this tile (i.e. transitively adjacent to it)
-    /// TODO remove
-    fn find_contiguous_tiles_old<'a>(&self, tiles: &[&'a MapTile]) -> HashSet<&'a MapTile> {
-        let mut tile_set: HashSet<&MapTile> = HashSet::new();
-
-        let adjacent_tiles = self.find_adjacent_tiles(tiles);
-        if adjacent_tiles.is_empty() {
-            return tile_set;
-        }
-
-        for tile in adjacent_tiles {
-            let tiles_to_search = tiles
-                .iter()
-                .filter(|x| !tile_set.contains(*x))
-                .cloned()
-                .collect::<Vec<&MapTile>>();
-            tile_set.extend(tile.find_contiguous_tiles_old(&tiles_to_search))
-        }
-
-        tile_set
     }
 
     /// Determines which of the provided tiles are contiguous with this tile (i.e. transitively adjacent to it)
@@ -436,6 +402,7 @@ fn map_update_system(
                 let color = match results[district_id as usize].winner {
                     Some(DistrictWinner::Good) => colors.good_regular,
                     Some(DistrictWinner::Bad) => colors.bad_regular,
+                    Some(DistrictWinner::Tie) => Color::YELLOW_GREEN,
                     None => Color::GREEN,
                 };
                 text.sections[0].style.color = color;
