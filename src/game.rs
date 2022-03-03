@@ -1,3 +1,5 @@
+use std::{cmp::Ordering, collections::HashSet};
+
 use crate::*;
 use rand::Rng;
 
@@ -18,10 +20,12 @@ impl Plugin for GamePlugin {
                 SystemSet::on_exit(GameState::Game)
                     .with_system(despawn_components::<GameComponent>),
             )
-            .add_system(tile_system)
             .add_system(district_selection_system)
+            .add_system(tile_click_system)
+            .add_system(map_update_system)
             .insert_resource(SelectedDistrict(0))
-            .insert_resource(STARTING_LEVEL);
+            .insert_resource(STARTING_LEVEL)
+            .insert_resource(Map(vec![]));
     }
 }
 
@@ -56,6 +60,95 @@ impl Map {
 
         Map(rows)
     }
+
+    /// Gets the tile with the provided coordinates, if it exists.
+    fn get(&self, coords: &Coordinates) -> &MapTile {
+        &self.0[coords.y][coords.x]
+    }
+
+    /// Gets the tile with the provided coordinates mutably, if it exists.
+    fn get_mut(&mut self, coords: &Coordinates) -> &mut MapTile {
+        &mut self.0[coords.y][coords.x]
+    }
+
+    /// Calculates results for all the districts
+    fn get_district_results(&self, num_districts: u8) -> Vec<DistrictResult> {
+        let mut results = Vec::new();
+        for district_id in 0..num_districts {
+            let tiles = self.get_tiles_in_district(district_id);
+            let good_tiles = tiles
+                .iter()
+                .filter(|tile| tile.content == MapTileContent::Good)
+                .count();
+            let bad_tiles = tiles
+                .iter()
+                .filter(|tile| tile.content == MapTileContent::Bad)
+                .count();
+            let winner = if are_contiguous(&tiles) {
+                match good_tiles.cmp(&bad_tiles) {
+                    Ordering::Greater => Some(DistrictWinner::Good),
+                    Ordering::Less => Some(DistrictWinner::Bad),
+                    Ordering::Equal => None,
+                }
+            } else {
+                None
+            };
+
+            results.push(DistrictResult {
+                size: good_tiles + bad_tiles,
+                winner,
+            });
+        }
+
+        results
+    }
+
+    /// Gets all the tiles in the provided district
+    fn get_tiles_in_district(&self, district_id: u8) -> Vec<&MapTile> {
+        let mut tiles = Vec::new();
+        for row in self.0.iter() {
+            for tile in row {
+                if tile.district_id == Some(district_id) {
+                    tiles.push(tile)
+                }
+            }
+        }
+
+        tiles
+    }
+}
+
+/// Determines if the provided tiles are contiguous
+fn are_contiguous(tiles: &[&MapTile]) -> bool {
+    match tiles.first() {
+        Some(tile) => {
+            tile.find_contiguous_tiles(tiles)
+                == tiles.iter().map(|x| *x).collect::<HashSet<&MapTile>>()
+        }
+        None => false,
+    }
+    /*
+    //TODO this thinks it's contiguous as long as each tile is next to at least one other tile in the same district, even if there are 2 separate chunks of them
+    for tile in tiles.iter() {
+        let adjacent_tiles = tile.find_adjacent_tiles(tiles);
+
+        if !tiles.iter().any(|other_tile| tile.adjacent_to(other_tile)) {
+            return false;
+        }
+    }
+
+    true
+    */
+}
+
+struct DistrictResult {
+    size: usize,
+    winner: Option<DistrictWinner>,
+}
+
+enum DistrictWinner {
+    Good,
+    Bad,
 }
 
 struct Level {
@@ -66,15 +159,48 @@ struct Level {
     /// What percentage of the map will be populated
     populated_pct: f32,
     /// The size of the x and y dimensions of the map
-    map_size: u32,
+    map_size: usize,
 }
 
+#[derive(Hash, PartialEq, Eq)]
 struct MapTile {
     coords: Coordinates,
     content: MapTileContent,
     district_id: Option<u8>,
 }
 
+impl MapTile {
+    /// Determines whether this tile is orthogonally adjacent to the provided tile
+    fn adjacent_to(&self, other: &MapTile) -> bool {
+        ((self.coords.x == other.coords.x + 1 || self.coords.x == other.coords.x - 1)
+            && self.coords.y == other.coords.y)
+            || ((self.coords.y == other.coords.y + 1 || self.coords.y == other.coords.y - 1)
+                && self.coords.x == other.coords.x)
+    }
+
+    /// Determines which of the provided tiles are orthogonally adjacent to this tile
+    fn find_adjacent_tiles<'a>(&self, tiles: &'a [&MapTile]) -> Vec<&&'a MapTile> {
+        tiles.iter().filter(|tile| tile.adjacent_to(self)).collect()
+    }
+
+    /// Determines which of the provided tiles are contiguous with this tile (i.e. transitively adjacent to it)
+    fn find_contiguous_tiles<'a>(&self, tiles: &'a [&MapTile]) -> HashSet<&'a MapTile> {
+        let mut tile_set: HashSet<&MapTile> = HashSet::new();
+
+        for tile in self.find_adjacent_tiles(tiles) {
+            let tiles_to_search = tiles
+                .iter()
+                .filter(|x| !tile_set.contains(*x))
+                .map(|x| *x)
+                .collect::<Vec<&MapTile>>();
+            tile_set.extend(tile.find_contiguous_tiles(&tiles_to_search))
+        }
+
+        tile_set
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
 enum MapTileContent {
     Good,
     Bad,
@@ -90,39 +216,38 @@ impl MapTile {
         }
     }
 
-    fn new_good(x: u32, y: u32) -> Self {
+    fn new_good(x: usize, y: usize) -> Self {
         MapTile::with_content(Coordinates { x, y }, MapTileContent::Good)
     }
 
-    fn new_bad(x: u32, y: u32) -> Self {
+    fn new_bad(x: usize, y: usize) -> Self {
         MapTile::with_content(Coordinates { x, y }, MapTileContent::Bad)
     }
 
-    fn new_empty(x: u32, y: u32) -> Self {
+    fn new_empty(x: usize, y: usize) -> Self {
         MapTile::with_content(Coordinates { x, y }, MapTileContent::Empty)
     }
 
-    fn color(&self, good_color: Color, bad_color: Color) -> Color {
+    fn color(&self, colors: &Colors) -> Color {
         match self.content {
-            MapTileContent::Good => good_color,
-            MapTileContent::Bad => bad_color,
+            MapTileContent::Good => colors.good_faded,
+            MapTileContent::Bad => colors.bad_faded,
             MapTileContent::Empty => EMPTY_TILE_COLOR,
         }
     }
 }
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, Hash)]
 struct Coordinates {
-    x: u32,
-    y: u32,
+    x: usize,
+    y: usize,
 }
 
 /// Sets up the main game screen.
 fn game_setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    good_color: Res<GoodColor>,
-    bad_color: Res<BadColor>,
+    colors: Res<Colors>,
     level: Res<Level>,
 ) {
     // set up map
@@ -132,7 +257,7 @@ fn game_setup(
 
     // spawn map display
     let tile_spacing = 1.0;
-    let tile_size = Vec3::new(10.0, 10.0, 1.0);
+    let tile_size = Vec3::new(15.0, 15.0, 1.0);
     let tiles_width = num_columns as f32 * (tile_size.x + tile_spacing) - tile_spacing;
     let tiles_height = num_rows as f32 * (tile_size.y + tile_spacing) - tile_spacing;
     // center the tiles
@@ -141,6 +266,7 @@ fn game_setup(
         -(tiles_height - tile_size.y) / 2.0,
         0.0,
     );
+    let font = asset_server.load("fonts/FiraMono-Medium.ttf");
     for (row_idx, map_row) in map.0.iter().rev().enumerate() {
         let y_position = row_idx as f32 * (tile_size.y + tile_spacing);
         for (column_idx, map_tile) in map_row.iter().enumerate() {
@@ -152,7 +278,7 @@ fn game_setup(
             commands
                 .spawn_bundle(SpriteBundle {
                     sprite: Sprite {
-                        color: map_tile.color(good_color.0, bad_color.0),
+                        color: map_tile.color(&colors),
                         ..Default::default()
                     },
                     transform: Transform {
@@ -163,14 +289,34 @@ fn game_setup(
                     ..Default::default()
                 })
                 .insert(GameComponent)
-                .insert(map_tile.coords.clone());
+                .insert(map_tile.coords.clone())
+                .with_children(|parent| {
+                    parent
+                        .spawn_bundle(Text2dBundle {
+                            text: Text::with_section(
+                                "",
+                                TextStyle {
+                                    font: font.clone(),
+                                    font_size: 25.0,
+                                    color: Color::GREEN,
+                                },
+                                Default::default(),
+                            ),
+                            transform: Transform {
+                                translation: Vec3::new(-0.3, 0.57, 2.0),
+                                scale: Vec3::new(0.045, 0.045, 1.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(map_tile.coords.clone());
+                });
         }
     }
 
     commands.insert_resource(map);
 
     // spawn district selection buttons
-    let font = asset_server.load("fonts/FiraMono-Medium.ttf");
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
@@ -222,20 +368,50 @@ fn game_setup(
         });
 }
 
-/// Handles interactions with map tiles.
-fn tile_system(
+/// Handles interactions with map tiles
+fn tile_click_system(
     buttons: Res<Input<MouseButton>>,
     cursor_position: Res<CursorPosition>,
-    mut commands: Commands,
-    mut query: Query<(&Transform, &Coordinates, &mut Sprite)>,
+    selected_district: ResMut<SelectedDistrict>,
+    mut map: ResMut<Map>,
+    query: Query<(&Transform, &Coordinates, &Children)>,
+    mut query_child: Query<&mut Text>,
 ) {
     if buttons.pressed(MouseButton::Left) {
         if let Some(pos) = cursor_position.0 {
-            for (transform, coords, mut sprite) in query.iter_mut() {
+            for (transform, coords, children) in query.iter() {
                 if intersects(pos, transform) {
-                    sprite.color = Color::CYAN; //TODO
-                    println!("u clicked {:?}", coords); //TODO
+                    map.get_mut(coords).district_id = Some(selected_district.0);
+                    for &child in children.iter() {
+                        let mut text = query_child.get_mut(child).unwrap();
+                        text.sections[0].value = format!("{}", selected_district.0 + 1);
+                    }
                 }
+            }
+        }
+    }
+}
+
+/// Handles updating the map based on district winners
+fn map_update_system(
+    map: Res<Map>,
+    level: Res<Level>,
+    colors: Res<Colors>,
+    query: Query<(&Coordinates, &Children)>,
+    mut query_child: Query<&mut Text>,
+) {
+    let results = map.get_district_results(level.districts);
+    for (coords, children) in query.iter() {
+        let tile = map.get(coords);
+        for &child in children.iter() {
+            let mut text = query_child.get_mut(child).unwrap();
+            if let Some(district_id) = tile.district_id {
+                let color = match results[district_id as usize].winner {
+                    Some(DistrictWinner::Good) => colors.good_regular,
+                    Some(DistrictWinner::Bad) => colors.bad_regular,
+                    None => Color::GREEN,
+                };
+                text.sections[0].style.color = color;
             }
         }
     }
