@@ -1,8 +1,13 @@
 use crate::*;
-use bevy::input::mouse::MouseButtonInput;
 use rand::Rng;
 
 const EMPTY_TILE_COLOR: Color = Color::WHITE;
+const STARTING_LEVEL: Level = Level {
+    districts: 3,
+    good_pct: 0.5,
+    populated_pct: 0.9,
+    map_size: 30,
+};
 
 pub struct GamePlugin;
 
@@ -13,25 +18,36 @@ impl Plugin for GamePlugin {
                 SystemSet::on_exit(GameState::Game)
                     .with_system(despawn_components::<GameComponent>),
             )
-            .add_system(tile_system);
+            .add_system(tile_system)
+            .add_system(district_selection_system)
+            .insert_resource(SelectedDistrict(0))
+            .insert_resource(STARTING_LEVEL);
     }
 }
 
 #[derive(Component)]
 struct GameComponent;
 
+#[derive(Component)]
+struct DistrictSelector(u8);
+
+struct SelectedDistrict(u8);
+
 struct Map(Vec<Vec<MapTile>>);
 
 impl Map {
-    fn generate(num_rows: u32, num_columns: u32) -> Self {
+    fn generate(level: &Level) -> Self {
         let mut rows = Vec::new();
-        for y in 0..num_rows {
+        for y in 0..level.map_size {
             let mut row = Vec::new();
-            for x in 0..num_columns {
-                let tile = match rand::thread_rng().gen::<f32>() {
-                    r if r < 0.25 => MapTile::new_good(x, y),
-                    r if r < 0.75 => MapTile::new_bad(x, y),
-                    _ => MapTile::new_empty(x, y),
+            for x in 0..level.map_size {
+                let tile = if rand::thread_rng().gen::<f32>() <= level.populated_pct {
+                    match rand::thread_rng().gen::<f32>() {
+                        r if r <= level.good_pct => MapTile::new_good(x, y),
+                        _ => MapTile::new_bad(x, y),
+                    }
+                } else {
+                    MapTile::new_empty(x, y)
                 };
                 row.push(tile);
             }
@@ -40,6 +56,17 @@ impl Map {
 
         Map(rows)
     }
+}
+
+struct Level {
+    /// The number of districts required
+    districts: u8,
+    /// What percentage of the population will vote with the good party
+    good_pct: f32,
+    /// What percentage of the map will be populated
+    populated_pct: f32,
+    /// The size of the x and y dimensions of the map
+    map_size: u32,
 }
 
 struct MapTile {
@@ -96,11 +123,12 @@ fn game_setup(
     asset_server: Res<AssetServer>,
     good_color: Res<GoodColor>,
     bad_color: Res<BadColor>,
+    level: Res<Level>,
 ) {
     // set up map
-    let num_rows = 50;
-    let num_columns = 50;
-    let map = Map::generate(num_rows, num_columns);
+    let num_rows = level.map_size;
+    let num_columns = level.map_size;
+    let map = Map::generate(&level);
 
     // spawn map display
     let tile_spacing = 1.0;
@@ -140,6 +168,58 @@ fn game_setup(
     }
 
     commands.insert_resource(map);
+
+    // spawn district selection buttons
+    let font = asset_server.load("fonts/FiraMono-Medium.ttf");
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(50.0), Val::Percent(100.0)),
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    left: Val::Px(0.0),
+                    ..Default::default()
+                },
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::FlexStart,
+                flex_direction: FlexDirection::ColumnReverse,
+                ..Default::default()
+            },
+            color: UiColor(Color::NONE),
+            ..Default::default()
+        })
+        .insert(GameComponent)
+        .with_children(|parent| {
+            for district_id in 0..level.districts {
+                parent
+                    .spawn_bundle(ButtonBundle {
+                        style: Style {
+                            size: Size::new(Val::Px(100.0), Val::Px(50.0)),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            margin: Rect::all(Val::Px(5.0)),
+                            ..Default::default()
+                        },
+                        color: NORMAL_BUTTON.into(),
+                        ..Default::default()
+                    })
+                    .insert(DistrictSelector(district_id))
+                    .with_children(|parent| {
+                        parent.spawn_bundle(TextBundle {
+                            text: Text::with_section(
+                                format!("District {}", district_id + 1),
+                                TextStyle {
+                                    font: font.clone(),
+                                    font_size: 20.0,
+                                    color: Color::SEA_GREEN,
+                                },
+                                Default::default(),
+                            ),
+                            ..Default::default()
+                        });
+                    });
+            }
+        });
 }
 
 /// Handles interactions with map tiles.
@@ -167,4 +247,25 @@ fn intersects(point: Vec2, transform: &Transform) -> bool {
         && point.x <= transform.translation.x + (transform.scale.x / 2.0) + 1.0
         && point.y >= transform.translation.y - (transform.scale.y / 2.0) - 1.0
         && point.y <= transform.translation.y + (transform.scale.y / 2.0) + 1.0
+}
+
+/// Handles selecting which district to paint
+fn district_selection_system(
+    mut selected_district: ResMut<SelectedDistrict>,
+    interaction_query: Query<(&Interaction, &DistrictSelector), Changed<Interaction>>,
+    mut button_query: Query<(&DistrictSelector, &mut UiColor)>,
+) {
+    for (interaction, district_selector) in interaction_query.iter() {
+        if *interaction == Interaction::Clicked {
+            selected_district.0 = district_selector.0;
+        }
+    }
+
+    for (district_selector, mut color) in button_query.iter_mut() {
+        if selected_district.0 == district_selector.0 {
+            *color = Color::WHITE.into();
+        } else {
+            *color = NORMAL_BUTTON.into();
+        }
+    }
 }
