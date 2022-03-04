@@ -7,7 +7,7 @@ impl Plugin for GameOverPlugin {
         app.add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(game_over_setup))
             .add_system_set(
                 SystemSet::on_exit(GameState::GameOver)
-                    .with_system(despawn_components::<GameOverComponent>),
+                    .with_system(despawn_components_system::<GameOverComponent>),
             );
     }
 }

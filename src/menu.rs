@@ -7,7 +7,7 @@ impl Plugin for MenuPlugin {
         app.add_system_set(SystemSet::on_enter(GameState::Menu).with_system(menu_setup))
             .add_system_set(
                 SystemSet::on_exit(GameState::Menu)
-                    .with_system(despawn_components::<MenuComponent>),
+                    .with_system(despawn_components_system::<MenuComponent>),
             )
             .add_system(start_button_system);
     }
@@ -17,12 +17,17 @@ impl Plugin for MenuPlugin {
 struct MenuComponent;
 
 #[derive(Component)]
-struct StartButton;
+struct StartButton(Party);
+
+enum Party {
+    Red,
+    Blue,
+}
 
 /// Sets up the main menu screen.
 fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // title text
-    let font = asset_server.load("fonts/FiraMono-Medium.ttf");
+    let font = asset_server.load(MAIN_FONT);
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
@@ -47,7 +52,7 @@ fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         value: "Redistricting".to_string(),
                         style: TextStyle {
                             font: font.clone(),
-                            font_size: 40.0,
+                            font_size: 70.0,
                             color: Color::WHITE,
                         },
                     }],
@@ -86,25 +91,60 @@ fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             parent
                 .spawn_bundle(ButtonBundle {
                     style: Style {
-                        size: Size::new(Val::Px(150.0), Val::Px(50.0)),
+                        size: Size::new(Val::Px(250.0), Val::Px(100.0)),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
+                        margin: Rect::all(Val::Px(15.0)),
                         ..Default::default()
                     },
                     color: NORMAL_BUTTON.into(),
                     ..Default::default()
                 })
-                .insert(StartButton)
+                .insert(StartButton(Party::Red))
                 .with_children(|parent| {
                     parent.spawn_bundle(TextBundle {
                         text: Text::with_section(
-                            "Start",
+                            "Join the\nred party",
                             TextStyle {
                                 font: font.clone(),
                                 font_size: 40.0,
                                 color: Color::SEA_GREEN,
                             },
-                            Default::default(),
+                            TextAlignment {
+                                horizontal: HorizontalAlign::Center,
+                                ..Default::default()
+                            },
+                        ),
+                        ..Default::default()
+                    });
+                });
+
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(250.0), Val::Px(100.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        margin: Rect::all(Val::Px(15.0)),
+                        ..Default::default()
+                    },
+                    color: NORMAL_BUTTON.into(),
+                    ..Default::default()
+                })
+                .insert(StartButton(Party::Blue))
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "Join the\nblue party",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 40.0,
+                                color: Color::SEA_GREEN,
+                            },
+                            TextAlignment {
+                                horizontal: HorizontalAlign::Center,
+                                ..Default::default()
+                            },
                         ),
                         ..Default::default()
                     });
@@ -112,15 +152,30 @@ fn menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-type InteractedStartButtonTuple = (Changed<Interaction>, With<StartButton>);
-
-/// Handles interactions with the start button.
+/// Handles interactions with the start buttons.
 fn start_button_system(
     mut game_state: ResMut<State<GameState>>,
-    interaction_query: Query<&Interaction, InteractedStartButtonTuple>,
+    mut colors: ResMut<Colors>,
+    interaction_query: Query<(&Interaction, &StartButton), Changed<Interaction>>,
 ) {
-    for interaction in interaction_query.iter() {
+    for (interaction, start_button) in interaction_query.iter() {
         if *interaction == Interaction::Clicked {
+            *colors = match start_button.0 {
+                Party::Red => Colors {
+                    good_color_name: "red".to_string(),
+                    good_regular: RED,
+                    good_faded: RED_FADED,
+                    bad_regular: BLUE,
+                    bad_faded: BLUE_FADED,
+                },
+                Party::Blue => Colors {
+                    good_color_name: "blue".to_string(),
+                    good_regular: BLUE,
+                    good_faded: BLUE_FADED,
+                    bad_regular: RED,
+                    bad_faded: RED_FADED,
+                },
+            };
             game_state.set(GameState::Game).unwrap();
         }
     }

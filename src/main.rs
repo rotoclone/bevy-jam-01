@@ -17,18 +17,22 @@ use game::*;
 mod game_over;
 use game_over::*;
 
-const DEV_MODE: bool = true;
+const DEV_MODE: bool = false;
+
+const MAIN_FONT: &str = "fonts/LeagueSpartan-Medium.ttf";
+const MONO_FONT: &str = "fonts/FiraMono-Medium.ttf";
 
 const NORMAL_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
 const HOVERED_BUTTON: Color = Color::rgb(0.35, 0.35, 0.35);
 const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
-const COLOR_1: Color = Color::rgb(0.0, 0.0, 0.8);
-const COLOR_1_FADED: Color = Color::rgb(0.5, 0.5, 1.0);
-const COLOR_2: Color = Color::rgb(0.8, 0.0, 0.0);
-const COLOR_2_FADED: Color = Color::rgb(1.0, 0.5, 0.5);
+const BLUE: Color = Color::rgb(0.0, 0.0, 0.8);
+const BLUE_FADED: Color = Color::rgb(0.5, 0.5, 1.0);
+const RED: Color = Color::rgb(0.8, 0.0, 0.0);
+const RED_FADED: Color = Color::rgb(1.0, 0.5, 0.5);
 
 pub struct Colors {
+    good_color_name: String,
     good_regular: Color,
     good_faded: Color,
     bad_regular: Color,
@@ -46,7 +50,14 @@ pub enum GameState {
 struct ExitButton;
 
 /// Generic system that takes a component as a parameter, and will despawn all entities with that component
-fn despawn_components<T: Component>(to_despawn: Query<Entity, With<T>>, mut commands: Commands) {
+fn despawn_components_system<T: Component>(
+    to_despawn: Query<Entity, With<T>>,
+    mut commands: Commands,
+) {
+    despawn_components(to_despawn, &mut commands);
+}
+
+fn despawn_components<T: Component>(to_despawn: Query<Entity, With<T>>, commands: &mut Commands) {
     for entity in to_despawn.iter() {
         commands.entity(entity).despawn_recursive();
     }
@@ -105,19 +116,19 @@ fn main() {
     app.insert_resource(ClearColor(Color::BLACK))
         .insert_resource(WindowDescriptor {
             title: "Redistricting".to_string(),
-            width: 1920.0,
-            height: 1080.0,
+            width: 1000.0,
+            height: 800.0,
             ..Default::default()
         })
         .insert_resource(Colors {
-            good_regular: COLOR_1,
-            good_faded: COLOR_1_FADED,
-            bad_regular: COLOR_2,
-            bad_faded: COLOR_2_FADED,
+            good_color_name: "n/a".to_string(),
+            good_regular: Color::WHITE,
+            good_faded: Color::WHITE,
+            bad_regular: Color::WHITE,
+            bad_faded: Color::WHITE,
         })
         .add_state(GameState::Menu)
         .add_startup_system(setup)
-        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(CursorPositionPlugin)
         .add_plugin(MenuPlugin)
         .add_plugin(GamePlugin)
@@ -127,7 +138,8 @@ fn main() {
         .add_plugins(DefaultPlugins);
 
     if DEV_MODE {
-        app.add_system(world_inspector_system)
+        app.add_system(bevy::input::system::exit_on_esc_system)
+            .add_system(world_inspector_system)
             .add_plugin(LogDiagnosticsPlugin::default())
             .add_plugin(FrameTimeDiagnosticsPlugin::default())
             .add_plugin(WorldInspectorPlugin::new())
