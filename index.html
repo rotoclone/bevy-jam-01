@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>My Bevy App</title>
+</head>
+
+<body style="margin: 0 !important; padding: 0 !important;">
+    <script type="module">
+        // Import and run your bevy wasm code
+        import init from './bevy-jam-01.js'
+        init()
+
+        // This disables the basic right click behaviour
+        document.addEventListener('contextmenu', function (evt) {
+            evt.preventDefault();
+        })
+    </script>
+</body>
+
+</html>

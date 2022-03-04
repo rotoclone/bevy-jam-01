@@ -116,8 +116,8 @@ fn main() {
     app.insert_resource(ClearColor(Color::BLACK))
         .insert_resource(WindowDescriptor {
             title: "Redistricting".to_string(),
-            width: 1000.0,
-            height: 800.0,
+            width: 1280.0,
+            height: 720.0,
             ..Default::default()
         })
         .insert_resource(Colors {
