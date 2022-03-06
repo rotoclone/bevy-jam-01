@@ -3,8 +3,9 @@ use std::{cmp::Ordering, collections::HashSet};
 use crate::*;
 use rand::Rng;
 
-const EMPTY_TILE_COLOR: Color = Color::WHITE;
+const EMPTY_TILE_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const EMPTY_TILE_COLOR_FADED: Color = Color::rgb(0.8, 0.8, 0.8);
+const BORDER_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
 const STARTING_LEVEL: Level = Level {
     districts: 3,
     good_pct: 0.5,
@@ -26,8 +27,9 @@ impl Plugin for GamePlugin {
             .add_system(district_selection_system)
             .add_system(tile_click_system)
             .add_system(map_update_system)
-            .add_system(solution_system)
+            .add_system(border_system)
             .add_system(district_info_system)
+            .add_system(solution_system)
             .add_system(confirm_button_visibility_system)
             .add_system(confirm_button_system)
             .insert_resource(SelectedDistrict(0))
@@ -52,6 +54,14 @@ struct ConfirmButton;
 
 #[derive(Component)]
 struct ConfirmButtonParent;
+
+#[derive(Component)]
+enum Border {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
 
 struct SelectedDistrict(u8);
 
@@ -99,6 +109,54 @@ impl Map {
     /// Gets the tile with the provided coordinates mutably, if it exists.
     fn get_mut(&mut self, coords: &Coordinates) -> &mut MapTile {
         &mut self.tiles[coords.y][coords.x]
+    }
+
+    /// Gets the tile one space up from the provided coordinates, if it exists
+    fn get_up(&self, coords: &Coordinates) -> Option<&MapTile> {
+        if coords.y == 0 {
+            None
+        } else {
+            Some(self.get(&Coordinates {
+                x: coords.x,
+                y: coords.y - 1,
+            }))
+        }
+    }
+
+    /// Gets the tile one space down from the provided coordinates, if it exists
+    fn get_down(&self, coords: &Coordinates) -> Option<&MapTile> {
+        if coords.y >= (self.tiles.len() - 1) {
+            None
+        } else {
+            Some(self.get(&Coordinates {
+                x: coords.x,
+                y: coords.y + 1,
+            }))
+        }
+    }
+
+    /// Gets the tile one space left from the provided coordinates, if it exists
+    fn get_left(&self, coords: &Coordinates) -> Option<&MapTile> {
+        if coords.x == 0 {
+            None
+        } else {
+            Some(self.get(&Coordinates {
+                x: coords.x - 1,
+                y: coords.y,
+            }))
+        }
+    }
+
+    /// Gets the tile one space right from the provided coordinates, if it exists
+    fn get_right(&self, coords: &Coordinates) -> Option<&MapTile> {
+        if coords.x >= (self.tiles[0].len() - 1) {
+            None
+        } else {
+            Some(self.get(&Coordinates {
+                x: coords.x + 1,
+                y: coords.y,
+            }))
+        }
     }
 
     /// Calculates results for all the districts
@@ -385,6 +443,70 @@ fn set_up_game(
                             ..Default::default()
                         })
                         .insert(map_tile.coords.clone());
+
+                    // top border
+                    parent
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite {
+                                color: BORDER_COLOR,
+                                ..Default::default()
+                            },
+                            transform: Transform {
+                                translation: Vec3::new(0.0, 0.5, 3.0),
+                                scale: Vec3::new(1.2, 0.2, 1.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Border::Top);
+
+                    // bottom border
+                    parent
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite {
+                                color: BORDER_COLOR,
+                                ..Default::default()
+                            },
+                            transform: Transform {
+                                translation: Vec3::new(0.0, -0.5, 3.0),
+                                scale: Vec3::new(1.2, 0.2, 1.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Border::Bottom);
+
+                    // left border
+                    parent
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite {
+                                color: BORDER_COLOR,
+                                ..Default::default()
+                            },
+                            transform: Transform {
+                                translation: Vec3::new(-0.5, 0.0, 3.0),
+                                scale: Vec3::new(0.2, 1.2, 1.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Border::Left);
+
+                    // right border
+                    parent
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite {
+                                color: BORDER_COLOR,
+                                ..Default::default()
+                            },
+                            transform: Transform {
+                                translation: Vec3::new(0.5, 0.0, 3.0),
+                                scale: Vec3::new(0.2, 1.2, 1.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Border::Right);
                 });
         }
     }
@@ -547,15 +669,17 @@ fn tile_click_system(
                             MapTileContent::Empty => EMPTY_TILE_COLOR_FADED,
                         };
                         for &child in children.iter() {
-                            let mut text = query_child.get_mut(child).unwrap();
-                            text.sections[0].value = format!("{}", selected_district.0 + 1);
+                            if let Ok(mut text) = query_child.get_mut(child) {
+                                text.sections[0].value = format!("{}", selected_district.0 + 1);
+                            }
                         }
                     } else if buttons.pressed(MouseButton::Right) {
                         tile.district_id = None;
                         sprite.color = tile.color(&colors);
                         for &child in children.iter() {
-                            let mut text = query_child.get_mut(child).unwrap();
-                            text.sections[0].value = "".to_string();
+                            if let Ok(mut text) = query_child.get_mut(child) {
+                                text.sections[0].value = "".to_string();
+                            }
                         }
                     }
                 }
@@ -576,15 +700,16 @@ fn map_update_system(
     for (coords, children) in query.iter() {
         let tile = map.get(coords);
         for &child in children.iter() {
-            let mut text = query_child.get_mut(child).unwrap();
-            if let Some(district_id) = tile.district_id {
-                let color = match results[district_id as usize].winner {
-                    Some(DistrictWinner::Good) => colors.good_regular,
-                    Some(DistrictWinner::Bad) => colors.bad_regular,
-                    Some(DistrictWinner::Tie) => Color::YELLOW_GREEN,
-                    None => Color::GREEN,
-                };
-                text.sections[0].style.color = color;
+            if let Ok(mut text) = query_child.get_mut(child) {
+                if let Some(district_id) = tile.district_id {
+                    let color = match results[district_id as usize].winner {
+                        Some(DistrictWinner::Good) => colors.good_regular,
+                        Some(DistrictWinner::Bad) => colors.bad_regular,
+                        Some(DistrictWinner::Tie) => Color::YELLOW_GREEN,
+                        None => Color::GREEN,
+                    };
+                    text.sections[0].style.color = color;
+                }
             }
         }
     }
@@ -619,6 +744,77 @@ fn district_selection_system(
     }
 }
 
+/// Handles showing district borders
+fn border_system(
+    map: Res<Map>,
+    query: Query<(&Coordinates, &Children)>,
+    mut query_child: Query<(&Border, &mut Sprite)>,
+) {
+    for (coords, children) in query.iter() {
+        let tile = map.get(coords);
+
+        let needs_top_border = if let Some(up_tile) = map.get_up(coords) {
+            tile.district_id != up_tile.district_id
+        } else {
+            tile.district_id.is_some()
+        };
+
+        let needs_bottom_border = if let Some(down_tile) = map.get_down(coords) {
+            tile.district_id != down_tile.district_id
+        } else {
+            tile.district_id.is_some()
+        };
+
+        let needs_left_border = if let Some(left_tile) = map.get_left(coords) {
+            tile.district_id != left_tile.district_id
+        } else {
+            tile.district_id.is_some()
+        };
+
+        let needs_right_border = if let Some(right_tile) = map.get_right(coords) {
+            tile.district_id != right_tile.district_id
+        } else {
+            tile.district_id.is_some()
+        };
+
+        for &child in children.iter() {
+            if let Ok((border, mut sprite)) = query_child.get_mut(child) {
+                if matches!(border, Border::Top) {
+                    if needs_top_border {
+                        sprite.color.set_a(1.0);
+                    } else {
+                        sprite.color.set_a(0.0);
+                    }
+                }
+
+                if matches!(border, Border::Bottom) {
+                    if needs_bottom_border {
+                        sprite.color.set_a(1.0);
+                    } else {
+                        sprite.color.set_a(0.0);
+                    }
+                }
+
+                if matches!(border, Border::Left) {
+                    if needs_left_border {
+                        sprite.color.set_a(1.0);
+                    } else {
+                        sprite.color.set_a(0.0);
+                    }
+                }
+
+                if matches!(border, Border::Right) {
+                    if needs_right_border {
+                        sprite.color.set_a(1.0);
+                    } else {
+                        sprite.color.set_a(0.0);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Handles displaying info about the current districts
 fn district_info_system(
     map: Res<Map>,
@@ -629,24 +825,25 @@ fn district_info_system(
     let results = map.get_district_results(level.districts);
     for (district_selector, children) in button_query.iter() {
         for &child in children.iter() {
-            let mut text = query_child.get_mut(child).unwrap();
-            let result = &results[district_selector.0 as usize];
-            let validity_text = match result.validity(&level) {
-                DistrictValidity::TooBig => " [too big]",
-                DistrictValidity::TooSmall => " [too small]",
-                DistrictValidity::NonContiguous => " [non-contiguous]",
-                DistrictValidity::Valid => match result.winner {
-                    Some(DistrictWinner::Good) => " [win]",
-                    Some(DistrictWinner::Bad) => " [lose]",
-                    Some(DistrictWinner::Tie) => " [tie]",
-                    None => " [invalid]",
-                },
-            };
-            text.sections[0].value = format!(
-                "District {} ({}){validity_text}",
-                district_selector.0 + 1,
-                result.size
-            );
+            if let Ok(mut text) = query_child.get_mut(child) {
+                let result = &results[district_selector.0 as usize];
+                let validity_text = match result.validity(&level) {
+                    DistrictValidity::TooBig => " [too big]",
+                    DistrictValidity::TooSmall => " [too small]",
+                    DistrictValidity::NonContiguous => " [non-contiguous]",
+                    DistrictValidity::Valid => match result.winner {
+                        Some(DistrictWinner::Good) => " [win]",
+                        Some(DistrictWinner::Bad) => " [lose]",
+                        Some(DistrictWinner::Tie) => " [tie]",
+                        None => " [invalid]",
+                    },
+                };
+                text.sections[0].value = format!(
+                    "District {} ({}){validity_text}",
+                    district_selector.0 + 1,
+                    result.size
+                );
+            }
         }
     }
 }
