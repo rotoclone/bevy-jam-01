@@ -6,13 +6,17 @@ use rand::Rng;
 const EMPTY_TILE_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const EMPTY_TILE_COLOR_FADED: Color = Color::rgb(0.8, 0.8, 0.8);
 const BORDER_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
+const MIN_DISTRICTS: u8 = 3;
+const MIN_GOOD_PCT: f32 = 0.25;
+const MAX_POPULATED_PCT: f32 = 0.9;
+const MAX_MAP_SIZE: usize = 20;
 const STARTING_LEVEL: Level = Level {
     districts: 3,
     good_pct: 0.5,
     populated_pct: 0.7,
-    map_size: 10,
-    min_district_size: 28,
-    max_district_size: 32,
+    map_size: 9,
+    min_district_size: 18,
+    max_district_size: 20,
 };
 
 pub struct GamePlugin;
@@ -77,6 +81,7 @@ struct Map {
 impl Map {
     fn generate(level: &Level) -> Self {
         let mut num_non_empty_tiles = 0;
+        let mut num_good_tiles = 0;
         let mut rows = Vec::new();
         for y in 0..level.map_size {
             let mut row = Vec::new();
@@ -84,7 +89,10 @@ impl Map {
                 let tile = if rand::thread_rng().gen::<f32>() <= level.populated_pct {
                     num_non_empty_tiles += 1;
                     match rand::thread_rng().gen::<f32>() {
-                        r if r <= level.good_pct => MapTile::new_good(x, y),
+                        r if r <= level.good_pct => {
+                            num_good_tiles += 1;
+                            MapTile::new_good(x, y)
+                        }
                         _ => MapTile::new_bad(x, y),
                     }
                 } else {
@@ -95,10 +103,40 @@ impl Map {
             rows.push(row);
         }
 
-        Map {
+        let mut map = Map {
             tiles: rows,
             num_non_empty_tiles,
+        };
+
+        // adjust the generated level so the number of good tiles is within a reasonable range of the prescribed percentage
+        let min_good_tile_fraction = level.good_pct;
+        let max_good_tile_fraction = level.good_pct * 1.2;
+        let mut good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
+        while good_tile_fraction > max_good_tile_fraction {
+            // there are too many good tiles, turn one to the dark side
+            let coords = map.find_random_coords_with_content(MapTileContent::Good);
+            map.get_mut(&coords).content = MapTileContent::Bad;
+            num_good_tiles -= 1;
+            good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
         }
+
+        while good_tile_fraction < min_good_tile_fraction {
+            // there are not enough good tiles, wololo
+            let coords = map.find_random_coords_with_content(MapTileContent::Bad);
+            map.get_mut(&coords).content = MapTileContent::Good;
+            num_good_tiles += 1;
+            good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
+        }
+
+        map
+    }
+
+    /// Mutably finds the coordinates of a random tile with the provided content
+    fn find_random_coords_with_content(&self, content: MapTileContent) -> Coordinates {
+        let tiles = self.get_tiles_with_content(content);
+        tiles[rand::thread_rng().gen_range(0..tiles.len())]
+            .coords
+            .clone()
     }
 
     /// Gets the tile with the provided coordinates, if it exists.
@@ -191,12 +229,15 @@ impl Map {
         results
     }
 
-    /// Gets all the tiles in the provided district
-    fn get_tiles_in_district(&self, district_id: u8) -> Vec<&MapTile> {
+    /// Gets all the tiles for which the provided filter function returns true
+    fn get_tiles_matching<F>(&self, filter_fn: F) -> Vec<&MapTile>
+    where
+        F: Fn(&MapTile) -> bool,
+    {
         let mut tiles = Vec::new();
         for row in self.tiles.iter() {
             for tile in row {
-                if tile.district_id == Some(district_id) {
+                if filter_fn(tile) {
                     tiles.push(tile)
                 }
             }
@@ -205,18 +246,14 @@ impl Map {
         tiles
     }
 
+    /// Gets all the tiles in the provided district
+    fn get_tiles_in_district(&self, district_id: u8) -> Vec<&MapTile> {
+        self.get_tiles_matching(|tile| tile.district_id == Some(district_id))
+    }
+
     /// Gets all the tiles with the provided content
     fn get_tiles_with_content(&self, content: MapTileContent) -> Vec<&MapTile> {
-        let mut tiles = Vec::new();
-        for row in self.tiles.iter() {
-            for tile in row {
-                if tile.content == content {
-                    tiles.push(tile)
-                }
-            }
-        }
-
-        tiles
+        self.get_tiles_matching(|tile| tile.content == content)
     }
 }
 
@@ -444,6 +481,10 @@ fn set_up_game(
                         })
                         .insert(map_tile.coords.clone());
 
+                    let border_thickness = 0.2;
+                    let border_length = 1.2;
+                    let border_offset = 0.5;
+
                     // top border
                     parent
                         .spawn_bundle(SpriteBundle {
@@ -452,8 +493,8 @@ fn set_up_game(
                                 ..Default::default()
                             },
                             transform: Transform {
-                                translation: Vec3::new(0.0, 0.5, 3.0),
-                                scale: Vec3::new(1.2, 0.2, 1.0),
+                                translation: Vec3::new(0.0, border_offset, 3.0),
+                                scale: Vec3::new(border_length, border_thickness, 1.0),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -468,8 +509,8 @@ fn set_up_game(
                                 ..Default::default()
                             },
                             transform: Transform {
-                                translation: Vec3::new(0.0, -0.5, 3.0),
-                                scale: Vec3::new(1.2, 0.2, 1.0),
+                                translation: Vec3::new(0.0, -border_offset, 3.0),
+                                scale: Vec3::new(border_length, border_thickness, 1.0),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -484,8 +525,8 @@ fn set_up_game(
                                 ..Default::default()
                             },
                             transform: Transform {
-                                translation: Vec3::new(-0.5, 0.0, 3.0),
-                                scale: Vec3::new(0.2, 1.2, 1.0),
+                                translation: Vec3::new(-border_offset, 0.0, 3.0),
+                                scale: Vec3::new(border_thickness, border_length, 1.0),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -500,8 +541,8 @@ fn set_up_game(
                                 ..Default::default()
                             },
                             transform: Transform {
-                                translation: Vec3::new(0.5, 0.0, 3.0),
-                                scale: Vec3::new(0.2, 1.2, 1.0),
+                                translation: Vec3::new(border_offset, 0.0, 3.0),
+                                scale: Vec3::new(border_thickness, border_length, 1.0),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -987,18 +1028,20 @@ fn confirm_button_system(
 
 /// Generates the next level using the previous level as a baseline
 fn generate_next_level(old_level: &Level) -> Level {
-    let map_size = old_level.map_size + 1;
+    let map_size = MAX_MAP_SIZE.min(old_level.map_size + 1);
     // ensure an odd number of districts to make the game easier
     // (so you only have to win 1 more district than the bad party instead of 2)
-    let districts = match map_size / 3 {
+    let tiles_per_district = 35;
+    let districts = match (map_size * map_size) / tiles_per_district {
         x if x % 2 == 0 => (x + 1) as u8,
         x => x as u8,
     };
-    let populated_pct = old_level.populated_pct * 1.05;
+    let districts = MIN_DISTRICTS.max(districts);
+    let populated_pct = MAX_POPULATED_PCT.min(old_level.populated_pct * 1.05);
     let avg_district_size = (map_size as f32 * map_size as f32 * populated_pct) / districts as f32;
     Level {
         districts,
-        good_pct: old_level.good_pct * 0.8,
+        good_pct: MIN_GOOD_PCT.max(old_level.good_pct * 0.9),
         populated_pct,
         map_size,
         min_district_size: (avg_district_size * 0.95).round() as usize,
