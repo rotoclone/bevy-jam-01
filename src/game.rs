@@ -7,6 +7,7 @@ const EMPTY_TILE_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
 const EMPTY_TILE_COLOR_FADED: Color = Color::rgb(0.8, 0.8, 0.8);
 const BORDER_COLOR: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
 const MIN_DISTRICTS: u8 = 3;
+const MAX_DISTRICTS: u8 = 9;
 const MIN_GOOD_PCT: f32 = 0.25;
 const MAX_POPULATED_PCT: f32 = 0.9;
 const MAX_MAP_SIZE: usize = 20;
@@ -14,7 +15,7 @@ const STARTING_LEVEL: Level = Level {
     districts: 3,
     good_pct: 0.5,
     populated_pct: 0.7,
-    map_size: 9,
+    map_size: 8,
     min_district_size: 18,
     max_district_size: 20,
 };
@@ -79,7 +80,7 @@ struct Map {
 }
 
 impl Map {
-    fn generate(level: &Level) -> Self {
+    fn generate(level: &mut Level) -> Self {
         let mut num_non_empty_tiles = 0;
         let mut num_good_tiles = 0;
         let mut rows = Vec::new();
@@ -107,10 +108,13 @@ impl Map {
             tiles: rows,
             num_non_empty_tiles,
         };
+        level.set_district_sizes(num_non_empty_tiles);
 
-        // adjust the generated level so the number of good tiles is within a reasonable range of the prescribed percentage
+        // adjust the generated level so the number of good tiles is within a reasonable range of the prescribed percentage, and also there are enough good tiles to be able to win
+        let min_good_tiles = determine_min_good_tiles(level, num_non_empty_tiles);
+
         let min_good_tile_fraction = level.good_pct;
-        let max_good_tile_fraction = level.good_pct * 1.2;
+        let max_good_tile_fraction = level.good_pct * 1.1;
         let mut good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
         while good_tile_fraction > max_good_tile_fraction {
             // there are too many good tiles, turn one to the dark side
@@ -120,13 +124,15 @@ impl Map {
             good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
         }
 
-        while good_tile_fraction < min_good_tile_fraction {
+        while good_tile_fraction < min_good_tile_fraction || num_good_tiles < min_good_tiles {
             // there are not enough good tiles, wololo
             let coords = map.find_random_coords_with_content(MapTileContent::Bad);
             map.get_mut(&coords).content = MapTileContent::Good;
             num_good_tiles += 1;
             good_tile_fraction = num_good_tiles as f32 / num_non_empty_tiles as f32;
         }
+
+        println!("minimum good tiles: {min_good_tiles}, actual good tiles: {num_good_tiles}"); //TODO remove
 
         map
     }
@@ -255,6 +261,30 @@ impl Map {
     fn get_tiles_with_content(&self, content: MapTileContent) -> Vec<&MapTile> {
         self.get_tiles_matching(|tile| tile.content == content)
     }
+}
+
+/// Determines the minimum number of good tiles needed for a level to not be impossible
+fn determine_min_good_tiles(level: &Level, num_non_empty_tiles: usize) -> usize {
+    let min_good_tiles_per_good_district = (level.min_district_size / 2) + 1;
+    let min_districts_to_win = (level.districts / 2) + 1;
+    let mut district_sizes = Vec::new();
+    for i in 0..level.districts {
+        if i < min_districts_to_win {
+            district_sizes.push(level.min_district_size);
+        } else {
+            district_sizes.push(level.max_district_size);
+        }
+    }
+
+    let total_district_sizes = district_sizes.iter().sum::<usize>();
+    let extra_good_tiles_needed = if num_non_empty_tiles > total_district_sizes {
+        let extra_tiles = num_non_empty_tiles - total_district_sizes;
+        (extra_tiles / 2) + 1
+    } else {
+        0
+    };
+
+    (min_good_tiles_per_good_district * min_districts_to_win as usize) + extra_good_tiles_needed
 }
 
 /// Determines if the provided tiles are contiguous
@@ -422,13 +452,16 @@ fn set_up_game(
     let num_rows = level.map_size;
     let num_columns = level.map_size;
     let map = Map::generate(level);
-    level.set_district_sizes(map.num_non_empty_tiles);
 
     // spawn map display
     let tile_spacing = 1.0;
-    let tile_size = Vec3::new(20.0, 20.0, 1.0);
-    let tiles_width = num_columns as f32 * (tile_size.x + tile_spacing) - tile_spacing;
-    let tiles_height = num_rows as f32 * (tile_size.y + tile_spacing) - tile_spacing;
+    let tiles_width = 470.0;
+    let tiles_height = 470.0;
+    let tile_size = Vec3::new(
+        ((tiles_width + tile_spacing) / num_columns as f32) - tile_spacing,
+        ((tiles_height + tile_spacing) / num_rows as f32) - tile_spacing,
+        1.0,
+    );
     // center the tiles
     let tiles_offset = Vec3::new(
         -(tiles_width - tile_size.x) / 2.0,
@@ -467,14 +500,14 @@ fn set_up_game(
                                 "",
                                 TextStyle {
                                     font: mono_font.clone(),
-                                    font_size: 25.0,
+                                    font_size: 125.0,
                                     color: Color::GREEN,
                                 },
                                 Default::default(),
                             ),
                             transform: Transform {
                                 translation: Vec3::new(-0.3, 0.6, 2.0),
-                                scale: Vec3::new(0.05, 0.05, 1.0),
+                                scale: Vec3::new(0.01, 0.01, 1.0),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -1036,7 +1069,7 @@ fn generate_next_level(old_level: &Level) -> Level {
         x if x % 2 == 0 => (x + 1) as u8,
         x => x as u8,
     };
-    let districts = MIN_DISTRICTS.max(districts);
+    let districts = MAX_DISTRICTS.min(MIN_DISTRICTS.max(districts));
     let populated_pct = MAX_POPULATED_PCT.min(old_level.populated_pct * 1.05);
     let avg_district_size = (map_size as f32 * map_size as f32 * populated_pct) / districts as f32;
     Level {
