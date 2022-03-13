@@ -681,7 +681,7 @@ fn set_up_game(
             parent.spawn_bundle(TextBundle {
                 text: Text::with_section(
                     format!(
-                        "You are in the {} party.\n{}% of voters will vote for your party.\nDraw {} districts with {} to {} voters each.",
+                        "You are in the {} party.\n{}% of precincts will vote for your party.\nDraw {} districts with {} to {} precincts each.",
                         colors.good_color_name,
                         ((num_good_tiles as f32 / map.num_non_empty_tiles as f32) * 100.0).round() as u32,
                         level.districts,
