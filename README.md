@@ -5,6 +5,19 @@ Play it on itch.io: https://the-nacho.itch.io/redistricting
 
 Licensed under the dual MIT / Apache-2.0 license
 
+## Future features
+* Saving and loading
+* Colors other than just red and blue
+* Campaign mode where you get to "pass a law" (get a power-up) between each level
+* Sound
+* UI prettyness
+* Level editor
+* Ability to see level seeds and load levels based seeds
+* Daily puzzle with seed based on the date
+* Undo
+* Fill tool
+* Ability to lock districts
+
 ## Building for web
 ### Prerequisites
 * `rustup target install wasm32-unknown-unknown`
